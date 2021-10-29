@@ -27,7 +27,7 @@ def map_includes(all_paths):
 
     # Iterate over all files to find out what files they include
     for p in all_paths:
-        with open(p) as f:
+        with open(p, encoding='utf-8') as f:
             lines = f.readlines()
             include_list = []  # Used to remember what files are included in a specific file
             for line in lines:
