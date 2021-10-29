@@ -1,75 +1,83 @@
 import networkx as nx
+import matplotlib.pyplot as plt
+from pathlib import Path
 import os
 
 
-def parse_directory(dir_name):
-    # Create a list of file and sub directories
-    # Names in the given directory
-    list_of_file = os.listdir(dir_name)
-    all_relevant_files = list()
-    # Iterate over all the entries
-    for entry in list_of_file:
-        # Create full path
-        full_path = os.path.join(dir_name, entry)
-        # If entry is a directory then get the list of files in this directory
-        # We are not interested in the build or test directories
-        if os.path.isdir(full_path) and not entry.endswith("build") and not entry.endswith("test"):
-            all_relevant_files = all_relevant_files + parse_directory(full_path)
-        elif entry.endswith(".c") or entry.endswith(".cpp") or entry.endswith(".h") or entry.endswith(".hpp"):
-            all_relevant_files.append(full_path)
+def relevant_file_paths(dir_path, relevant_file_types, dirs_to_exclude=None):
+    if dirs_to_exclude is None:
+        dirs_to_exclude = []
 
-    return all_relevant_files
+    relevant_files = []
+    for file_type in relevant_file_types:
+        relevant_files.extend(Path(dir_path).rglob(file_type))
+
+    def dir_name_not_in_path(path):
+        return all(ex_dir not in str(path) for ex_dir in dirs_to_exclude)
+
+    # Exclude paths containing directory names from 'dirs_to_exclude' list
+    return list(filter(dir_name_not_in_path, relevant_files))
 
 
-def map_includes(all_paths):
-    n_map = dict()  # dict that maps names (paths) of files to the names (paths) of files they include
-    quick_name = dict()  # dict used for quick loop-up if we already know the full path
+def is_include_statement(line):
+    return line.strip().startswith("#include")
 
-    # Iterate over all files to find out what files they include
-    for p in all_paths:
-        with open(p, encoding='utf-8') as f:
-            lines = f.readlines()
-            include_list = []  # Used to remember what files are included in a specific file
-            for line in lines:
-                line.strip(" ")
 
-                if line.startswith("#include") and "<" not in line:
-                    _, n, _ = line.split("\"")  # Get the name of the included file (n)
-                    n = n.replace("/", "\\")  # Format the name of the file to fit with the path
+def outgoing_dependencies(file_path):
+    # Return a list of file names that the current 'file_path' includes with
+    # the #include-statement
+    dependencies = []
+    with open(file_path, encoding='utf-8') as f:
+        for line in f.readlines():
+            if is_include_statement(line):
+                included_file = line.split()[-1].strip("\"<>").rsplit("/", 1)[-1]
+                dependencies.append(included_file)
+    return dependencies
 
-                    if n in quick_name.keys():  # If we have seen the file name before, we can set the path directly
-                        n_full = quick_name[n]
-                    else:
-                        for p_item in all_paths:  # If we have not seen the file name before, we need to find the path
-                            if p_item.endswith(n):
-                                quick_name[n] = p_item
-                                n_full = p_item
 
-                    include_list.append(n_full)
+def edges(start_node, out_nodes):
+    # Returns a list of tuples, representing each edge from 'start_node'
+    # to each other node in the 'out_nodes' list
+    return [(start_node, out_node) for out_node in out_nodes]
 
-            n_map[p] = include_list
 
-    return n_map
+def filename_from_full_path(full_path):
+    # Extract filename from full path
+    return str(full_path).rsplit("\\", 1)[-1]
+
+
+def draw_cycle_graph(g, g_cycles):
+    # Draw a visual representation of the nodes and edges
+    # that are present in the detected cycles
+    unique_nodes_in_cycle = set([n for cycle in g_cycles for n in cycle])
+    nx.draw(g.subgraph(unique_nodes_in_cycle), with_labels=True, font_size=8)
+    plt.show()
 
 
 # WARNING, Does not function correctly if you have to files with exactly the same name in different folders
 # e.g. src/main.cpp and test/main.cpp
 if __name__ == '__main__':
 
-    path = os.getcwd()
+    print("Analyzing directory ...")
+
+    FILE_TYPES = ('*.c', '*.cpp', '*.h', '*.hpp')
+    EXCLUDE_DIRS = ('build', 'test')
+
     graph = nx.DiGraph()
 
-    c_and_h_paths = parse_directory(path)
+    c_and_h_paths = relevant_file_paths(os.getcwd(), FILE_TYPES, EXCLUDE_DIRS)
+    shortened_paths = [filename_from_full_path(p) for p in c_and_h_paths]
+    graph.add_nodes_from(shortened_paths)
 
-    name_map = map_includes(c_and_h_paths)
+    for node in c_and_h_paths:
+        graph.add_edges_from(edges(filename_from_full_path(node), outgoing_dependencies(node)))
 
-    graph.add_nodes_from(name_map.keys())
+    print(f"Found {len(graph.nodes)} relevant files with {len(graph.edges)} total dependencies")
 
-    for key in name_map:
-        for value in name_map[key]:
-            graph.add_edge(key, value)
+    cycles = list(nx.simple_cycles(graph))
+    output = "No circular dependencies were found"
+    if cycles:
+        output = f"{len(cycles)} cycle(s) were found: {cycles}"
+    print(output)
 
-    cycles = nx.simple_cycles(graph)
-
-    for cycle in cycles:
-        print(cycle)
+    draw_cycle_graph(graph, cycles)
