@@ -1,7 +1,112 @@
 import networkx as nx
-import matplotlib.pyplot as plt
 from pathlib import Path
+import pydot
 import os
+
+STD_LIBS = [
+    "algorithm",
+    "future",
+    "numeric",
+    "strstream",
+    "any",
+    "initializer_list",
+    "optional",
+    "system_error",
+    "array",
+    "iomanip",
+    "ostream",
+    "thread",
+    "atomic",
+    "ios",
+    "queue",
+    "tuple",
+    "bitset",
+    "iosfwd",
+    "random",
+    "type_traits",
+    "chrono",
+    "iostream",
+    "ratio",
+    "typeindex",
+    "codecvt",
+    "istream",
+    "regex",
+    "typeinfo",
+    "complex",
+    "iterator",
+    "scoped_allocator",
+    "unordered_map",
+    "condition_variable",
+    "limits",
+    "set",
+    "unordered_set",
+    "deque",
+    "list",
+    "shared_mutex",
+    "utility",
+    "exception",
+    "locale",
+    "sstream",
+    "valarray",
+    "execution",
+    "map",
+    "stack",
+    "variant",
+    "filesystem",
+    "memory",
+    "stdexcept",
+    "vector",
+    "forward_list",
+    "memory_resource",
+    "streambuf",
+    "fstream",
+    "mutex",
+    "string",
+    "functional",
+    "new",
+    "string_view",
+    "cassert",
+    "cinttypes",
+    "csignal",
+    "cstdio",
+    "cwchar",
+    "ccomplex",
+    "ciso646",
+    "cstdalign",
+    "cstdlib",
+    "cwctype",
+    "cctype",
+    "climits",
+    "cstdarg",
+    "cstring",
+    "cerrno",
+    "clocale",
+    "cstdbool",
+    "ctgmath",
+    "cfenv",
+    "cmath",
+    "cstddef",
+    "ctime",
+    "cfloat",
+    "csetjmp",
+    "cstdint",
+    "cuchar",
+    "concepts",
+    "coroutine",
+    "compare",
+    "version",
+    "source_location",
+    "format",
+    "span",
+    "ranges",
+    "bit",
+    "numbers",
+    "syncstream",
+    "stop_token",
+    "semaphore",
+    "latch",
+    "barrier"
+]
 
 
 def relevant_file_paths(dir_path, relevant_file_types, dirs_to_exclude=None):
@@ -23,6 +128,10 @@ def is_include_statement(line):
     return line.strip().startswith("#include")
 
 
+def is_standard_library(file_name):
+    return file_name in STD_LIBS
+
+
 def outgoing_dependencies(file_path):
     # Return a list of file names that the current 'file_path' includes with
     # the #include-statement
@@ -31,7 +140,9 @@ def outgoing_dependencies(file_path):
         for line in f.readlines():
             if is_include_statement(line):
                 included_file = line.split()[-1].strip("\"<>").rsplit("/", 1)[-1]
-                dependencies.append(included_file)
+                if not is_standard_library(included_file):
+                    dependencies.append(included_file)
+
     return dependencies
 
 
@@ -49,35 +160,47 @@ def filename_from_full_path(full_path):
 def draw_cycle_graph(g, g_cycles):
     # Draw a visual representation of the nodes and edges
     # that are present in the detected cycles
-    unique_nodes_in_cycle = set([n for cycle in g_cycles for n in cycle])
-    nx.draw(g.subgraph(unique_nodes_in_cycle), with_labels=True, font_size=8)
-    plt.show()
+    for cycle in g_cycles:
+        g.get_edge(cycle[-1], cycle[0])[0].set_color("red")
+        g.get_node(cycle[-1])[0].set_fillcolor("pink")
+        g.get_node(cycle[-1])[0].set_style("filled")
+        for i in range(len(cycle) - 1):
+            g.get_edge(cycle[i], cycle[i+1])[0].set_color("red")
+            g.get_node(cycle[i])[0].set_fillcolor("pink")
+            g.get_node(cycle[i])[0].set_style("filled")
+    g.write_png("graph.png")
 
 
 # WARNING, Does not function correctly if you have to files with exactly the same name in different folders
 # e.g. src/main.cpp and test/main.cpp
 if __name__ == '__main__':
 
-    print("Analyzing directory ...")
+    print("\nAnalyzing directory ...\n")
 
     FILE_TYPES = ('*.c', '*.cpp', '*.h', '*.hpp')
     EXCLUDE_DIRS = ('build', 'test')
 
-    graph = nx.DiGraph()
+    graph = pydot.Dot("Dependency graph", graph_type="digraph")
 
     c_and_h_paths = relevant_file_paths(os.getcwd(), FILE_TYPES, EXCLUDE_DIRS)
     shortened_paths = [filename_from_full_path(p) for p in c_and_h_paths]
-    graph.add_nodes_from(shortened_paths)
+
+    for node in shortened_paths:
+        # Dots must be replaced with underscores, causes issues
+        graph.add_node(pydot.Node(node.replace(".", "_"), label=node))
 
     for node in c_and_h_paths:
-        graph.add_edges_from(edges(filename_from_full_path(node), outgoing_dependencies(node)))
+        for src, dest in edges(filename_from_full_path(node), outgoing_dependencies(node)):
+            # Dots must be replaced with underscores, causes issues
+            graph.add_edge(pydot.Edge(src.replace(".", "_"), dest.replace(".", "_")))
 
-    print(f"Found {len(graph.nodes)} relevant files with {len(graph.edges)} total dependencies")
+    print(f"Found {len(graph.get_nodes())} relevant files with {len(graph.get_edges())} total dependencies")
 
-    cycles = list(nx.simple_cycles(graph))
+    nx_graph = nx.drawing.nx_pydot.from_pydot(graph)
+    cycles = list(nx.simple_cycles(nx_graph))
     output = "No circular dependencies were found"
     if cycles:
         output = f"{len(cycles)} cycle(s) were found: {cycles}"
-    print(output)
+    print(f"{output}\n")
 
     draw_cycle_graph(graph, cycles)
