@@ -3,7 +3,7 @@ from pathlib import Path
 import pydot
 import os
 
-STD_LIBS = [
+STD_LIBS = {
     "algorithm",
     "future",
     "numeric",
@@ -106,7 +106,7 @@ STD_LIBS = [
     "semaphore",
     "latch",
     "barrier"
-]
+}
 
 
 def relevant_file_paths(dir_path, relevant_file_types, dirs_to_exclude=None):
@@ -156,19 +156,49 @@ def filename_from_full_path(full_path):
     # Extract filename from full path
     return str(full_path).rsplit("\\", 1)[-1]
 
+def color_cycle(g, cycle):
+    g.get_edge(cycle[-1], cycle[0])[0].set_color("red")
+    g.get_node(cycle[-1])[0].set_fillcolor("pink")
+    g.get_node(cycle[-1])[0].set_style("filled")
+    for i in range(len(cycle) - 1):
+        g.get_edge(cycle[i], cycle[i + 1])[0].set_color("red")
+        g.get_node(cycle[i])[0].set_fillcolor("pink")
+        g.get_node(cycle[i])[0].set_style("filled")
+
+def write_cycle(cycle, index):
+    cycle_graph = pydot.Dot("Cycle_graph", graph_type="digraph")
+    for n in cycle:
+        cycle_graph.add_node(pydot.Node(n))
+
+    cycle_graph.add_edge(pydot.Edge(cycle[-1], cycle[0]))
+    for i in range(len(cycle) - 1):
+        cycle_graph.add_edge(pydot.Edge(cycle[i], cycle[i+1]))
+
+    cycle_graph.write_png(f'dependency_graphs/png/cycle_{index}.png')
+    cycle_graph.write_svg(f'dependency_graphs/svg/cycle_{index}.svg')
+
+def create_directory(path):
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        print(f'{path}: Directory already exists')
 
 def draw_cycle_graph(g, g_cycles):
     # Draw a visual representation of the nodes and edges
     # that are present in the detected cycles
+
+    create_directory("dependency_graphs")
+    create_directory("dependency_graphs/svg")
+    create_directory("dependency_graphs/png")
+
+    counter = 0
     for cycle in g_cycles:
-        g.get_edge(cycle[-1], cycle[0])[0].set_color("red")
-        g.get_node(cycle[-1])[0].set_fillcolor("pink")
-        g.get_node(cycle[-1])[0].set_style("filled")
-        for i in range(len(cycle) - 1):
-            g.get_edge(cycle[i], cycle[i+1])[0].set_color("red")
-            g.get_node(cycle[i])[0].set_fillcolor("pink")
-            g.get_node(cycle[i])[0].set_style("filled")
-    g.write_png("graph.png")
+        color_cycle(g, cycle)
+        write_cycle(cycle, counter)
+        counter += 1
+
+    g.write_png("dependency_graphs/png/graph.png")
+    g.write_svg("dependency_graphs/svg/graph.svg")
 
 
 # WARNING, Does not function correctly if you have to files with exactly the same name in different folders
@@ -190,6 +220,11 @@ if __name__ == '__main__':
         graph.add_node(pydot.Node(node.replace(".", "_"), label=node))
 
     for node in c_and_h_paths:
+        for dep in outgoing_dependencies(node):  # We need to make sure that all nodes are correctly labeled
+            name = filename_from_full_path(dep)
+            if len(graph.get_node(name.replace(".", "_"))) == 0:
+                graph.add_node(pydot.Node(name.replace(".", "_"), label=name))
+
         for src, dest in edges(filename_from_full_path(node), outgoing_dependencies(node)):
             # Dots must be replaced with underscores, causes issues
             graph.add_edge(pydot.Edge(src.replace(".", "_"), dest.replace(".", "_")))
