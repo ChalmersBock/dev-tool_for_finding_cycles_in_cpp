@@ -210,20 +210,20 @@ if __name__ == '__main__':
     FILE_TYPES = ('*.c', '*.cpp', '*.h', '*.hpp')
     EXCLUDE_DIRS = ('build', 'test')
 
-    graph = pydot.Dot("Dependency graph", graph_type="digraph")
+    graph = pydot.Dot("Dependency graph", graph_type="digraph", rankdir="LR", ranksep=3)
 
     c_and_h_paths = relevant_file_paths(os.getcwd(), FILE_TYPES, EXCLUDE_DIRS)
     shortened_paths = [filename_from_full_path(p) for p in c_and_h_paths]
 
     for node in shortened_paths:
         # Dots must be replaced with underscores, causes issues
-        graph.add_node(pydot.Node(node.replace(".", "_"), label=node))
+        graph.add_node(pydot.Node(node.replace(".", "_"), label=node, height=1, width=3, fontsize=26, fontname="Arial"))
 
     for node in c_and_h_paths:
         for dep in outgoing_dependencies(node):  # We need to make sure that all nodes are correctly labeled
             name = filename_from_full_path(dep)
             if len(graph.get_node(name.replace(".", "_"))) == 0:
-                graph.add_node(pydot.Node(name.replace(".", "_"), label=name))
+                graph.add_node(pydot.Node(name.replace(".", "_"), label=name, height=1, width=3, fontsize=26, fontname="Arial"))
 
         for src, dest in edges(filename_from_full_path(node), outgoing_dependencies(node)):
             # Dots must be replaced with underscores, causes issues
