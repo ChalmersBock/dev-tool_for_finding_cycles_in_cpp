@@ -136,7 +136,7 @@ def outgoing_dependencies(file_path):
     # Return a list of file names that the current 'file_path' includes with
     # the #include-statement
     dependencies = []
-    with open(file_path, encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8', errors='ignore') as f:
         for line in f.readlines():
             if is_include_statement(line):
                 included_file = line.split()[-1].strip("\"<>").rsplit("/", 1)[-1]
