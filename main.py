@@ -1,75 +1,246 @@
 import networkx as nx
+from pathlib import Path
+import pydot
 import os
 
+STD_LIBS = {
+    "algorithm",
+    "future",
+    "numeric",
+    "strstream",
+    "any",
+    "initializer_list",
+    "optional",
+    "system_error",
+    "array",
+    "iomanip",
+    "ostream",
+    "thread",
+    "atomic",
+    "ios",
+    "queue",
+    "tuple",
+    "bitset",
+    "iosfwd",
+    "random",
+    "type_traits",
+    "chrono",
+    "iostream",
+    "ratio",
+    "typeindex",
+    "codecvt",
+    "istream",
+    "regex",
+    "typeinfo",
+    "complex",
+    "iterator",
+    "scoped_allocator",
+    "unordered_map",
+    "condition_variable",
+    "limits",
+    "set",
+    "unordered_set",
+    "deque",
+    "list",
+    "shared_mutex",
+    "utility",
+    "exception",
+    "locale",
+    "sstream",
+    "valarray",
+    "execution",
+    "map",
+    "stack",
+    "variant",
+    "filesystem",
+    "memory",
+    "stdexcept",
+    "vector",
+    "forward_list",
+    "memory_resource",
+    "streambuf",
+    "fstream",
+    "mutex",
+    "string",
+    "functional",
+    "new",
+    "string_view",
+    "cassert",
+    "cinttypes",
+    "csignal",
+    "cstdio",
+    "cwchar",
+    "ccomplex",
+    "ciso646",
+    "cstdalign",
+    "cstdlib",
+    "cwctype",
+    "cctype",
+    "climits",
+    "cstdarg",
+    "cstring",
+    "cerrno",
+    "clocale",
+    "cstdbool",
+    "ctgmath",
+    "cfenv",
+    "cmath",
+    "cstddef",
+    "ctime",
+    "cfloat",
+    "csetjmp",
+    "cstdint",
+    "cuchar",
+    "concepts",
+    "coroutine",
+    "compare",
+    "version",
+    "source_location",
+    "format",
+    "span",
+    "ranges",
+    "bit",
+    "numbers",
+    "syncstream",
+    "stop_token",
+    "semaphore",
+    "latch",
+    "barrier"
+}
 
-def parse_directory(dir_name):
-    # Create a list of file and sub directories
-    # Names in the given directory
-    list_of_file = os.listdir(dir_name)
-    all_relevant_files = list()
-    # Iterate over all the entries
-    for entry in list_of_file:
-        # Create full path
-        full_path = os.path.join(dir_name, entry)
-        # If entry is a directory then get the list of files in this directory
-        # We are not interested in the build or test directories
-        if os.path.isdir(full_path) and not entry.endswith("build") and not entry.endswith("test"):
-            all_relevant_files = all_relevant_files + parse_directory(full_path)
-        elif entry.endswith(".c") or entry.endswith(".cpp") or entry.endswith(".h") or entry.endswith(".hpp"):
-            all_relevant_files.append(full_path)
 
-    return all_relevant_files
+def relevant_file_paths(dir_path, relevant_file_types, dirs_to_exclude=None):
+    if dirs_to_exclude is None:
+        dirs_to_exclude = []
+
+    relevant_files = []
+    for file_type in relevant_file_types:
+        relevant_files.extend(Path(dir_path).rglob(file_type))
+
+    def dir_name_not_in_path(path):
+        return all(ex_dir not in str(path) for ex_dir in dirs_to_exclude)
+
+    # Exclude paths containing directory names from 'dirs_to_exclude' list
+    return list(filter(dir_name_not_in_path, relevant_files))
 
 
-def map_includes(all_paths):
-    n_map = dict()  # dict that maps names (paths) of files to the names (paths) of files they include
-    quick_name = dict()  # dict used for quick loop-up if we already know the full path
+def is_include_statement(line):
+    return line.strip().startswith("#include")
 
-    # Iterate over all files to find out what files they include
-    for p in all_paths:
-        with open(p) as f:
-            lines = f.readlines()
-            include_list = []  # Used to remember what files are included in a specific file
-            for line in lines:
-                line.strip(" ")
 
-                if line.startswith("#include") and "<" not in line:
-                    _, n, _ = line.split("\"")  # Get the name of the included file (n)
-                    n = n.replace("/", "\\")  # Format the name of the file to fit with the path
+def is_standard_library(file_name):
+    return file_name in STD_LIBS
 
-                    if n in quick_name.keys():  # If we have seen the file name before, we can set the path directly
-                        n_full = quick_name[n]
-                    else:
-                        for p_item in all_paths:  # If we have not seen the file name before, we need to find the path
-                            if p_item.endswith(n):
-                                quick_name[n] = p_item
-                                n_full = p_item
 
-                    include_list.append(n_full)
+def outgoing_dependencies(file_path):
+    # Return a list of file names that the current 'file_path' includes with
+    # the #include-statement
+    dependencies = []
+    with open(file_path, encoding='utf-8', errors='ignore') as f:
+        for line in f.readlines():
+            if is_include_statement(line):
+                included_file = line.split()[-1].strip("\"<>").rsplit("/", 1)[-1]
+                if not is_standard_library(included_file):
+                    dependencies.append(included_file)
 
-            n_map[p] = include_list
+    return dependencies
 
-    return n_map
+
+def edges(start_node, out_nodes):
+    # Returns a list of tuples, representing each edge from 'start_node'
+    # to each other node in the 'out_nodes' list
+    return [(start_node, out_node) for out_node in out_nodes]
+
+
+def filename_from_full_path(full_path):
+    # Extract filename from full path
+    return str(full_path).rsplit("\\", 1)[-1]
+
+
+def color_cycle(g, cycle):
+    g.get_edge(cycle[-1], cycle[0])[0].set_color("red")
+    g.get_node(cycle[-1])[0].set_fillcolor("pink")
+    g.get_node(cycle[-1])[0].set_style("filled")
+    for i in range(len(cycle) - 1):
+        g.get_edge(cycle[i], cycle[i + 1])[0].set_color("red")
+        g.get_node(cycle[i])[0].set_fillcolor("pink")
+        g.get_node(cycle[i])[0].set_style("filled")
+
+
+def write_cycle(cycle, index):
+    cycle_graph = pydot.Dot("Cycle_graph", graph_type="digraph")
+    for n in cycle:
+        cycle_graph.add_node(pydot.Node(n, label='.'.join(n.rsplit('_', 1))))
+
+    cycle_graph.add_edge(pydot.Edge(cycle[-1], cycle[0]))
+    for i in range(len(cycle) - 1):
+        cycle_graph.add_edge(pydot.Edge(cycle[i], cycle[i + 1]))
+
+    cycle_graph.write_png(f'dependency_graphs/png/cycle_{index}.png')
+    cycle_graph.write_svg(f'dependency_graphs/svg/cycle_{index}.svg')
+
+
+def create_directory(path):
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        print(f'{path}: Directory already exists')
+
+
+def draw_cycle_graph(g, g_cycles):
+    # Draw a visual representation of the nodes and edges
+    # that are present in the detected cycles
+
+    create_directory("dependency_graphs")
+    create_directory("dependency_graphs/svg")
+    create_directory("dependency_graphs/png")
+
+    counter = 0
+    for cycle in g_cycles:
+        color_cycle(g, cycle)
+        write_cycle(cycle, counter)
+        counter += 1
+
+    g.write_png("dependency_graphs/png/graph.png")
+    g.write_svg("dependency_graphs/svg/graph.svg")
 
 
 # WARNING, Does not function correctly if you have to files with exactly the same name in different folders
 # e.g. src/main.cpp and test/main.cpp
 if __name__ == '__main__':
 
-    path = os.getcwd()
-    graph = nx.DiGraph()
+    print("\nAnalyzing directory ...\n")
 
-    c_and_h_paths = parse_directory(path)
+    FILE_TYPES = ('*.c', '*.cpp', '*.h', '*.hpp')
+    EXCLUDE_DIRS = ('build', 'test')
 
-    name_map = map_includes(c_and_h_paths)
+    graph = pydot.Dot("Dependency graph", graph_type="digraph", rankdir="LR", ranksep=3)
 
-    graph.add_nodes_from(name_map.keys())
+    c_and_h_paths = relevant_file_paths(os.getcwd(), FILE_TYPES, EXCLUDE_DIRS)
+    shortened_paths = [filename_from_full_path(p) for p in c_and_h_paths]
 
-    for key in name_map:
-        for value in name_map[key]:
-            graph.add_edge(key, value)
+    for node in shortened_paths:
+        # Dots must be replaced with underscores, causes issues
+        graph.add_node(pydot.Node(node.replace(".", "_"), label=node, height=1, width=3, fontsize=26, fontname="Arial"))
 
-    cycles = nx.simple_cycles(graph)
+    for node in c_and_h_paths:
+        for dep in outgoing_dependencies(node):  # We need to make sure that all nodes are correctly labeled
+            name = filename_from_full_path(dep)
+            if len(graph.get_node(name.replace(".", "_"))) == 0:
+                graph.add_node(
+                    pydot.Node(name.replace(".", "_"), label=name, height=1, width=3, fontsize=26, fontname="Arial"))
 
-    for cycle in cycles:
-        print(cycle)
+        for src, dest in edges(filename_from_full_path(node), outgoing_dependencies(node)):
+            # Dots must be replaced with underscores, causes issues
+            graph.add_edge(pydot.Edge(src.replace(".", "_"), dest.replace(".", "_")))
+
+    print(f"Found {len(graph.get_nodes())} relevant files with {len(graph.get_edges())} total dependencies")
+
+    nx_graph = nx.drawing.nx_pydot.from_pydot(graph)
+    cycles = list(nx.simple_cycles(nx_graph))
+    output = "No circular dependencies were found"
+    if cycles:
+        output = f"{len(cycles)} cycle(s) were found: {cycles}"
+    print(f"{output}\n")
+
+    draw_cycle_graph(graph, cycles)
