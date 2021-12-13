@@ -2,6 +2,7 @@ import networkx as nx
 from pathlib import Path
 import pydot
 import os
+import re
 
 STD_LIBS = {
     "algorithm",
@@ -136,10 +137,12 @@ def outgoing_dependencies(file_path):
     # Return a list of file names that the current 'file_path' includes with
     # the #include-statement
     dependencies = []
+    pattern = re.compile("#include [<\"](.*?)[>\"]")
     with open(file_path, encoding='utf-8', errors='ignore') as f:
         for line in f.readlines():
-            if is_include_statement(line):
-                included_file = line.split()[-1].strip("\"<>").rsplit("/", 1)[-1]
+            is_include = pattern.search(line)
+            if is_include:
+                included_file = is_include.group(1).split('/')[-1]
                 if not is_standard_library(included_file):
                     dependencies.append(included_file)
 
