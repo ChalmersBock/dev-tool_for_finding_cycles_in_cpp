@@ -157,7 +157,7 @@ def edges(start_node, out_nodes):
 
 def filename_from_full_path(full_path):
     # Extract filename from full path
-    return str(full_path).rsplit("\\", 1)[-1]
+   return str(full_path).rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
 
 
 def color_cycle(g, cycle):
